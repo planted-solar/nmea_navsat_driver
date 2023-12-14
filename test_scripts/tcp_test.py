@@ -2,7 +2,7 @@ import socket
 import time
 
 def main():
-    server_ip = '127.0.0.01'  # Server IP address
+    server_ip = '127.0.0.2'  # Server IP address
     server_port = 9001  # Server port number
 
     server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)

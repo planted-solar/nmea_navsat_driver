@@ -8,9 +8,7 @@ from libnmea_navsat_driver.driver import Ros2NMEADriver
 class NMEATCPClientNode(Node):
     def __init__(self):
         super().__init__('nmea_tcp_client_node')
-        self.publisher = self.create_publisher(DiagnosticArray, 'diagnostics', 10)
         self.diag_pub = self.create_publisher(DiagnosticArray,'/diagnostics', 10)
-
         self.driver = Ros2NMEADriver()
 
         try:
@@ -28,12 +26,16 @@ class NMEATCPClientNode(Node):
             "Using gnss sensor with ip {} and port {}".format(self.gnss_ip, self.gnss_port)
         )
 
-    def run(self):
-        diag = DiagnosticArray() # PUT THIS AS A variable we update?
+    def publish_diagnostics(self, status_list):
+        diag = DiagnosticArray()
         diag.header.stamp = self.get_clock().now().to_msg()
+        for status in status_list:
+            diag.status.append(status)
 
+        self.diag_pub.publish(diag)
+
+    def run(self):
         stat = DiagnosticStatus(name="TCP_Socket", level=DiagnosticStatus.OK, message="OK",hardware_id=self.hardware_id)
-
         while rclpy.ok():
             try:
                 gnss_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -42,16 +44,14 @@ class NMEATCPClientNode(Node):
 
             except socket.error as exc:
                 # Publish diagnostics before killing node
-                stat.message = "Socket Connection to (%s) Failed"%self.gnss_ip
-                stat.level = DiagnosticStatus.ERROR
-                diag.status.append(stat)
-                self.diag_pub.publish(diag)
+                stat.message, stat.level = "Socket Connection to (%s) Failed"%self.gnss_ip, DiagnosticStatus.ERROR
+                self.publish_diagnostics([stat])
                 self.get_logger().error(
                     "Caught exception socket.error when setting up socket: %s" % exc
                 )
                 sys.exit(1)
-            diag.status.append(stat)
-            self.diag_pub.publish(diag)
+            self.publish_diagnostics([stat])
+           
 
 
             gnss_stat = DiagnosticStatus(name="gnss_fix", level=DiagnosticStatus.OK, message="OK",hardware_id=self.hardware_id)
@@ -61,15 +61,10 @@ class NMEATCPClientNode(Node):
                 try:
                     received_data = gnss_socket.recv(self.buffer_size).decode("ascii")
                     if len(received_data) == 0:
-                        # Socket closed, connection lost
                         self.get_logger().error("Socket closed. Connection lost.")
-                        stat.message = "Socket closed. Connection lost."
-                        stat.level = DiagnosticStatus.ERROR
-                        diag.status.clear()
-                        gnss_down = DiagnosticStatus(name="gnss_fix", level=DiagnosticStatus.ERROR, message="Hardware signal lost",hardware_id=self.hardware_id)
-                        diag.status.append(stat)
-                        diag.status.append(gnss_down)
-                        self.diag_pub.publish(diag)
+                        stat.message, stat.level = "Socket closed. Connection lost.", DiagnosticStatus.ERROR
+                        gnss_stat.message,stat.level ="Hardware signal lost", DiagnosticStatus.ERROR
+                        self.publish_diagnostics([stat,gnss_stat])
                         gnss_socket.close()
                         break
 
@@ -81,37 +76,29 @@ class NMEATCPClientNode(Node):
                     else:
                         full_lines = lines[:-1]
                         partial = lines[-1]
-                    diag.header.stamp = self.get_clock().now().to_msg()
                     for data in full_lines:
                         try:
                             if self.driver.add_sentence(data, self.frame_id):
-                                gnss_stat.message = "GPS Fix"
-                                gnss_stat.level = DiagnosticStatus.OK
+                                gnss_stat.message, gnss_stat.level = "GPS Fix", DiagnosticStatus.OK
                                 pass
                             else:
                                 self.get_logger().warn("Error with sentence: %s" % data)
-                                gnss_stat.message = "No GPS Fix: Error with sentence: %s" % data
-                                gnss_stat.level = DiagnosticStatus.WARN
+                                gnss_stat.message, gnss_stat.level = "No GPS Fix: Error with sentence: %s" % data, DiagnosticStatus.WARN
                         except ValueError as e:
                             self.get_logger().warn(
                                 "Value error, likely due to missing fields in the NMEA message. "
                                 "Error was: %s. Please report this issue. " % e
                             )
-                            gnss_stat.message = "No GPS Fix: Value error, likely due to missing fields in the NMEA message. Error was: %s. Please report this issue. " % e
-                            gnss_stat.level = DiagnosticStatus.WARN
-                        diag.status.clear()
-                        diag.status.append(gnss_stat)
-                        diag.status.append(stat)
-                        self.diag_pub.publish(diag)
+                            gnss_stat.message, gnss_stat.level = "No GPS Fix: Value error: Error was: %s. Please report this issue. " % e, DiagnosticStatus.WARN
+                        self.publish_diagnostics([stat,gnss_stat])
+
 
                 except socket.error as exc:
                     self.get_logger().error(
                         "Caught exception socket.error when receiving: %s" % exc
                     )
-                    stat.message = "Socket Connection to (%s) Failed"%self.gnss_ip
-                    stat.level = DiagnosticStatus.ERROR
-                    diag.status.append(stat)
-                    self.diag_pub.publish(diag)
+                    stat.message, stat.level = "Socket Connection to (%s) Failed"%self.gnss_ip , DiagnosticStatus.ERROR
+                    self.publish_diagnostics([stat])
                     gnss_socket.close()
                     break
 
