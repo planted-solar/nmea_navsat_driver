@@ -42,7 +42,6 @@ from libnmea_navsat_driver.checksum_utils import check_nmea_checksum
 from libnmea_navsat_driver import parser
 
 
-
 class Ros2NMEADriver(Node):
     def __init__(self):
         super().__init__("nmea_navsat_driver")
@@ -293,7 +292,6 @@ class Ros2NMEADriver(Node):
                 self.heading_pub.publish(current_heading)
         else:
             return False
-
         return True
 
     """Helper method for getting the frame_id with the correct TF prefix"""
